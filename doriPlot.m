@@ -5,191 +5,117 @@ main();
 end
 
 function yo()
-cleanHarmonics((1:1e7));
+bandPassFilter((1:1e7), 32000);
+disp('done yo');
 end
 
 function main
 clear all; close all; clc;
-%{
-2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth     40 million samples
-2015-01-29_dreadd_ref17_with_commutator_thresh50              15 million samples
-2015-01-06_130_rat130_arena1                                  50 million samples
-2015-05-18_messi_before_injection_threshold40_ref4            60 million samples
-%}
-sampleDir = {'2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth'; 
-         '2015-01-29_dreadd_ref17_with_commutator_thresh50'; 
-         '2015-01-06_130_rat130_arena1' ;
-         '2015-05-18_messi_before_injection_threshold40_ref4'};
+sampleDir = {
+    '2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth'; %40 million samples
+    '2015-01-29_dreadd_ref17_with_commutator_thresh50';          %15 million samples
+    '2015-01-06_130_rat130_arena1' ;                             %50 million samples
+    '2015-05-18_messi_before_injection_threshold40_ref4'};       %60 million samples
 file = char(sampleDir(1));
 Fs = 32000;                   % Sampling frequency
 T = 1/Fs;                     % Sample time
 startCh = 1;
 numOfCh = 4;
 
-channel = zeros(1e6,4);
-t = loadChunk(file, 1, 1);
-channel(:,1)=t;
+xlabFreq='Normalized frequency'; ylabFreq='Magnitude(\muV)';
+xlabSig='millisecs'; ylabSig='\muV';
+
 %loading
 for i = startCh:(startCh+numOfCh-1)
     channel(:,i) = loadChunk(file, i, 1);
 end
 
-offset = 5000;
+% Time
+time = (1:length(channel(:,1)))*T*1000;
 
+% dori vectors
 %channelPlot(:,startCh:startCh+numOfCh-1) = ...
- %   channel(:,startCh:startCh+numOfCh-1) + offset;
+%    channel(:,startCh:startCh+numOfCh-1) + offset;
+%figure; plot(time,channel); title('input signal');
 
- for i = startCh:(startCh+numOfCh-1)
-     channelPlot(:,i) = channel(:,i)+i*5000;
- end
+figure; plot4spaced(time,channel,'input signal',xlabSig, ylabSig);
 
-%L = length(tmp);                      % Length of signal
-time = (1:1e6)*T;
-figure(1), plot(time,channelPlot);
-  
-
+% Fourier
 for i = startCh:(startCh+numOfCh-1)
-    ichannel(:,i) = ifft(abs(fft(channel(:,i))));
+    tmp = fft(channel(:,i));
+    fourier(:,i) = tmp;
+    %data(:,1) = (abs(tmp(1:(length(tmp)/2)+1)));
 end
-%figure(11), plot(ichannel);
-hold on
-%plot(channel);
-hold off
+% plot fourier of original signal 
+%figure; plot4subplots(data, 'absolute value fourier of input', xlabFreq, ylabFreq);
 
-%fft
-figure(2);
+%fourier cleaning (negatives)
 for i = startCh:(startCh+numOfCh-1)
-    tmp = fft(abs(channel(:,i)));
-    fourier(:,i) = abs(tmp);
-    subplot(2,2,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:input') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-end
-
-%fft cleaning
-figure(3);
-for i = startCh:(startCh+numOfCh-1)
-    tmp = cleanHarmonics(fourier(:,i));
-    %tmp = cleanHarmonicsNeg(fourier(:,i));
-    cleanFourier(:,i) = tmp;
-    cleanChannel(:,i) = ifft(tmp);
-    subplot(2,2,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-end
-
-%fft cleaning negatives
-figure(33);
-for i = startCh:(startCh+numOfCh-1)
-    %tmp = cleanHarmonics(fourier(:,i));
+    %don't need %tmp2 = cleanHarmonics(fourier(:,i));%cleanFourierAbs(:,i) = tmp2;%cleanChannelAbs(:,i) = ifft(tmp2);
     tmp = cleanHarmonicsNeg(fourier(:,i));
     cleanFourierNeg(:,i) = tmp;
-    cleanChannel(:,i) = ifft(tmp); %CLEANING NEGATIVES
-    subplot(2,2,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned with negative') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
+    cleanChannelNeg(:,i) = ifft(tmp);
+    data(:,i) = (abs(tmp(1:(length(tmp)/2)+1)));     
 end
+% plot fourier before and after after harmonics are cleaned
+tmp = abs(fourier(1:(length(fourier(:,1))/2)+1,1:length(fourier(1,:))));
+hold on;
+figure; plot4subplots(tmp, 'Fourier: cleaned harmonics', xlabFreq, ylabFreq);
+        plot4subplots(data,'Fourier: unclean vs cleaned harmonics', xlabFreq, ylabFreq);
+hold off;
 
- for i = startCh:(startCh+numOfCh-1)
-     channelPlot(:,i) = ifft(cleanFourierNeg(:,i))+i*5000;
- end
-figure(11), plot(time,channelPlot),title('cleaned inversed fourier channels');
+% plot channel after its been cleaned
+figure; plot4spaced(time,cleanChannelNeg,'cleaned inversed fourier channels',xlabSig, ylabSig)
 
-
-%plot both;
-figure(4);
+%%% High Pass filter only
 for i = startCh:(startCh+numOfCh-1)
-    tmp = fourier(:,i)+1000;
-    subplot(2,2,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned neg vs uncleaned') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-    hold on;
-    tmp = cleanFourierNeg(:,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned neg vs uncleaned');
-    hold off;
+    HPfilteredChannel(:,i) = highPassFilter(channel(:,i), Fs);
 end
-
-%plot both;
-figure(44);
+% hp filter plus cleaned
 for i = startCh:(startCh+numOfCh-1)
-    tmp = cleanFourier(:,i)+1000;
-    subplot(2,2,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned neg vs clean') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-    hold on;
-    tmp = cleanFourierNeg(:,i);
-    plot(abs(tmp(1:(length(tmp)/2)+1))),title('Fourier:cleaned neg vs clean');
-    hold off;
+    HPfilteredCleanChannel(:,i) = highPassFilter(cleanChannelNeg(:,i), Fs);
 end
 
-%running the high pass filter
+%%%  Band Pass filter
 for i = startCh:(startCh+numOfCh-1)
-    filteredCleanChannel(:,i) = highPassFilter(cleanChannel(:,i), Fs);
+    bandFilteredCleanChannel(:,i) = bandPassFilter(cleanChannelNeg(:,i), Fs);
 end
+% plot High Pass
+figure; plot4spaced(time,HPfilteredCleanChannel,'clean and high-pass filtered channels',xlabSig, ylabSig);
+% plot Band filtered
+figure; plot4spaced(time,bandFilteredCleanChannel,'Band filtered channels',xlabSig, ylabSig);
+% both
+figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
+plot4spaced(time,bandFilteredCleanChannel,'High and Band filtered channels',xlabSig, ylabSig);
 
+%%% Weiner
 for i = startCh:(startCh+numOfCh-1)
-    filteredChannel(:,i) = highPassFilter(channel(:,i), Fs);
+    sig = HPfilteredCleanChannel(:,i); 
+    sigma = 0.03*(max(sig)-min(sig));
+    wiener(:,i) = WienerFilter(sig,sig,sigma);
 end
-
-figure(5);
-for i = startCh:(startCh+numOfCh-1)
-    tmp = filteredCleanChannel(:,i);
-    subplot(2,2,i);
-    %plot(Fs/2*linspace(0,1,(length(tmp)/2)+1),tmp(1:(length(tmp)/2)+1)),title('filtered and cleaned channels') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-end
-
-% PLOT FILTERED CHANNELS
- for i = startCh:(startCh+numOfCh-1)
-     channelPlot(:,i) = filteredCleanChannel(:,i)+i*5000;
- end
-figure(55), plot(time,channelPlot),title('clean and filtered channels');
-
-figure(6), plot(filteredCleanChannel);
-hold on
-plot(channel), title('filtered vs regular');
-hold off
-
-%figure(2), plot(abs(fourier(1:(length(fourier)/2)+1,:)));
-
-%plot(fft(channel));p(end
-
-%filtered uncleaned channel
-figure(7);
-for i = startCh:(startCh+numOfCh-1)
-    tmp = filteredChannel(:,i);
-    subplot(2,2,i);
-    %plot(Fs/2*linspace(0,1,(length(tmp)/2)+1),abs(tmp(1:(length(tmp)/2)+1))),title('filtered') %Fs/2*linspace(0,1,(length(tmp)/2)+1),
-    xlabel('Normalized frequency')
-    ylabel('Magnitude')
-end
-
-% PLOT FILTERED CHANNELS
- for i = startCh:(startCh+numOfCh-1)
-     channelPlot(:,i) = filteredChannel(:,i)+i*5000;
- end
-figure(77), plot(time,channelPlot),title('filtered channels');
-
+% plot Weiner and High Pass
+figure; plot4spaced(time,wiener,'wiener filtered channels',xlabSig, ylabSig);
+% before after wiener
+figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
+plot4spaced(time,wiener,'before/after wiener filter (from highpass)',xlabSig, ylabSig);
 
 end
 
-
-function tmp=cleanHarmonicsNeg(input)
-offset = 2*1e4;
-tmp=abs(input);%input(1:length(input)/2+1);%(offset:end);  %REMOVE!
+% Clean Harmonics
+%this function cleans harmonics by picking a starting point(offset) after
+%which any value above a threashold (mean*factor) is reset to mean.
+function out=cleanHarmonicsNeg(input)
+offset = 2*1e4; %when to start filtering, this is determined experimentally 
+% looking at the original fourier and seeing that harmonics do not start until these frequencies
+tmp=abs(input); %to determine the harmonics taking the abs is necessary
 out=input;
-period = 100;
-%mean100 = mean(out(1:100));
+factor = 3; %factor times mean to set threshold for cutting (determined experimentally)
+period = 100;%the period over which to determine the average 
 sumPer = sum(tmp(offset+1:offset+period)); 
-for i = offset+period+1:length(tmp) %2005050
-    if tmp(i)>3*sumPer/period       %20000
-        tmp(i)=sumPer/period;
+for i = offset+period+1:length(tmp) 
+    if tmp(i)>factor*sumPer/period %mean over period
+        tmp(i)=sumPer/period;  %changes value to mean
         out(i)= sumPer/period;
         if out(i)<0
             out(i)= -1*sumPer/period;
@@ -197,22 +123,6 @@ for i = offset+period+1:length(tmp) %2005050
     end
     sumPer=sumPer-tmp(i-period)+tmp(i);
 end
-
-end
-
-function out=cleanHarmonics(input)
-offset = 2*1e4;
-out=abs(input);%input(1:length(input)/2+1);%(offset:end);  %REMOVE!
-period = 100;
-%mean100 = mean(out(1:100));
-sumPer = sum(out(offset+1:offset+period)); 
-for i = offset+period+1:length(out) %2005050
-    if out(i)>3*sumPer/period       %20000
-        out(i)=sumPer/period;
-    end
-    sumPer=sumPer-out(i-period)+out(i);
-end
-
 end
 
 function data = loadChannel(file, channel)
@@ -235,8 +145,6 @@ end
 
 function data = highPassFilter(input, samplingFrequency)
 %HIGH PASS FILTERING
-% Butterworth Bandpass filter designed using FDESIGN.BANDPASS.
-%for details
 % http://www.mathworks.com/help/dsp/ref/fdesign.bandpass.html
 % All frequency values are in Hz.
 % Construct an FDESIGN object and call its BUTTER method.
@@ -250,49 +158,69 @@ Hd = design(fdesign.highpass(Fstop, Fpass, Astop, Apass, fs),'butter');
 data = filtfilt(Hd.sosMatrix,Hd.ScaleValues,input);
 end
 
-function plotting
+function data = bandPassFilter(input, samplingFrequency)
+% http://www.mathworks.com/help/dsp/ref/fdesign.bandpass.html
+% All frequency values are in Hz.
+% Construct an FDESIGN object and call its BUTTER method.
+Fstop =590;           % First Stopband Frequency
+Fpass =600;           % First Passband Frequency
+Astop = 20*log10(200);          %10 First Stopband Attenuation (dB)
+Apass  = 20*log10(100);             %5 Passband Ripple (dB)
 
-figure(1);
-plot(tmp,title('input'));
-%https://www.mathworks.com/matlabcentral/answers/22119-fft-of-100-data-points
-%{ 
-L=length(x);
-dt=3.5*10^(-6); %time.
-fs=1/dt;
-t=(0:1:L-1)*dt; %If you'd like to plot the time signal: plot(t,x)
-out=fft(x,L)/L;
-%}
-%FOURIER
-%normalizing and plotting
-%plot(abs(fft(tmp)));
-L = length(tmp);                      % Length of signal
-time = (0:L-1)*T;                % Time vector
-out=fft(tmp)/L;
-figure(2), plot(Fs/2*linspace(0,1,(length(out)/2)+1),abs(out(1:(length(out)/2)+1))),title('Fourier: One sided Spectrum')
-xlabel('Normalized frequency')
-ylabel('Magnitude')
-%figure(5), plot(abs(fftshift(fft(tmp))));
+F2pass =5e3-50; %BE CAREFUL OF HIGH FREQUENCIES
+F2stop =5e3;           % First Stopband Frequency
 
+fs = samplingFrequency;
+%toDecibal = 20*log(10);         
+%d =        fdesign.bandpass('Fst1,Fp1,Fp2,Fst2,C',100,800,1e3,1.4e3,1.6e3,1e4);
+Bd = design(fdesign.bandpass('Fst1,Fp1,Fp2,Fst2,Ast1,Ap,Ast2', Fstop, Fpass,F2pass, F2stop, Astop, Apass, Astop, fs),'butter');
+data = filtfilt(Bd.sosMatrix,Bd.ScaleValues,input);
+end
 
+%for plotting frequency
+function plot4subplots(data, tit, xlab, ylab)
+    for i = 1:4 %assumes 4 plots/adata
+        subplot(2,2,i);
+        plot(data(:,i))
+        title(tit)
+        xlabel(xlab)
+        ylabel(ylab)
+    end
 
-out=fft(filteredData)/L;
-figure(3), plot(Fs/2*linspace(0,1,(length(out)/2)+1),abs(out(1:(length(out)/2)+1))),title('Filtered Fourier')
-xlabel('Normalized frequency')
-ylabel('Magnitude')
+end
 
-%PLOTTING
-filtered = filtfilt(Hd.sosMatrix,Hd.ScaleValues,tmp);
-figure(4);
-plot(time,tmp-(mean(tmp)-mean(filtered)));
-hold on
-plot(time,filtered)
-xlabel('Time (s)')
-ylabel('Amplitude')
-legend('Original Signal','Filtered Data');
-
-
-plot(fail);
+%for plotting signal
+function plot4spaced(time, data, tit, xlab, ylab)
+    offset = 5000; %y axis MAGIC NUMBER
+    hold on;
+    for i = 1:4
+         plot(time,data(:,i)+i*5000)
+    end
+    hold off
+    title(tit);
+    xlabel(xlab);
+    ylabel(ylab);
+    legend('show');
+    %n=get(gca,'Ytick');
+    %set(gca,'yticklabel',sprintf('%.0f',n'));
 end
 
 
+
+
+
+function out=cleanHarmonics(input)
+offset = 2*1e4;
+out=abs(input);%input(1:length(input)/2+1);%(offset:end);  %REMOVE!
+period = 100;
+%mean100 = mean(out(1:100));
+sumPer = sum(out(offset+1:offset+period)); 
+for i = offset+period+1:length(out) %2005050
+    if out(i)>3*sumPer/period       %20000
+        out(i)=sumPer/period;
+    end
+    sumPer=sumPer-out(i-period)+out(i);
+end
+
+end
 
