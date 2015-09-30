@@ -4,41 +4,40 @@ function doriPlot()
 main();
 end
 
-function yo()
-bandPassFilter((1:1e7), 32000);
-disp('done yo');
-end
-
 function main
 clear all; close all; clc;
 sampleDir = {
     '2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth'; %40 million samples
     '2015-01-29_dreadd_ref17_with_commutator_thresh50';          %15 million samples
     '2015-01-06_130_rat130_arena1' ;                             %50 million samples
-    '2015-05-18_messi_before_injection_threshold40_ref4'};       %60 million samples
-file = char(sampleDir(1));
+    '2015-05-18_messi_before_injection_threshold40_ref4'};%dori  %60 million samples
+file = char(sampleDir(4));
 Fs = 32000;                   % Sampling frequency
 T = 1/Fs;                     % Sample time
-startCh = 1;
-numOfCh = 4;
+startCh = 1;                  % Start channel
+numOfCh = 16;                 % End   channel
+chunk = 1; %1                    % Chunk of 1e6 samples
+numChunks = 3;                % Number of chunks
 
 xlabFreq='Normalized frequency'; ylabFreq='Magnitude(\muV)';
 xlabSig='millisecs'; ylabSig='\muV';
 
 %loading
 for i = startCh:(startCh+numOfCh-1)
-    channel(:,i) = loadChunk(file, i, 1);
+    channel(:,i) = loadChunk(file, i, chunk, numChunks);
+    channel(:,i) = channel(:,i)*-1; %invert, makes spikes positive
 end
 
 % Time
-time = (1:length(channel(:,1)))*T*1000;
+time = (1:length(channel(:,1)))*T*1000; %converts to millisecs
 
 % dori vectors
 %channelPlot(:,startCh:startCh+numOfCh-1) = ...
 %    channel(:,startCh:startCh+numOfCh-1) + offset;
 %figure; plot(time,channel); title('input signal');
 
-figure; plot4spaced(time,channel,'input signal',xlabSig, ylabSig);
+%plot input
+%figure; plotOffset(time,channel,300,'input signal',xlabSig, ylabSig);
 
 % Fourier
 for i = startCh:(startCh+numOfCh-1)
@@ -53,54 +52,96 @@ end
 for i = startCh:(startCh+numOfCh-1)
     %don't need %tmp2 = cleanHarmonics(fourier(:,i));%cleanFourierAbs(:,i) = tmp2;%cleanChannelAbs(:,i) = ifft(tmp2);
     tmp = cleanHarmonicsNeg(fourier(:,i));
-    cleanFourierNeg(:,i) = tmp;
+    %cleanFourierNeg(:,i) = tmp;
     cleanChannelNeg(:,i) = ifft(tmp);
-    data(:,i) = (abs(tmp(1:(length(tmp)/2)+1)));     
+    %data(:,i) = (abs(tmp(1:(length(tmp)/2)+1)));     
 end
+fourier = 0; tmp = 0;
 % plot fourier before and after after harmonics are cleaned
-tmp = abs(fourier(1:(length(fourier(:,1))/2)+1,1:length(fourier(1,:))));
-hold on;
-figure; plot4subplots(tmp, 'Fourier: cleaned harmonics', xlabFreq, ylabFreq);
-        plot4subplots(data,'Fourier: unclean vs cleaned harmonics', xlabFreq, ylabFreq);
-hold off;
+%tmp = abs(fourier(1:(length(fourier(:,1))/2)+1,1:length(fourier(1,:))));
+%figure; plot4subplots(tmp, 'Fourier: cleaned harmonics', xlabFreq, ylabFreq);
+       %figure; plot4subplots(data,'Fourier: unclean vs cleaned harmonics', xlabFreq, ylabFreq);
 
 % plot channel after its been cleaned
-figure; plot4spaced(time,cleanChannelNeg,'cleaned inversed fourier channels',xlabSig, ylabSig)
+%figure; plot4spaced(time,cleanChannelNeg,'cleaned inversed fourier channels',xlabSig, ylabSig)
 
 %%% High Pass filter only
 for i = startCh:(startCh+numOfCh-1)
-    HPfilteredChannel(:,i) = highPassFilter(channel(:,i), Fs);
+    %HPfilteredChannel(:,i) = highPassFilter(channel(:,i), Fs);
 end
 % hp filter plus cleaned
 for i = startCh:(startCh+numOfCh-1)
     HPfilteredCleanChannel(:,i) = highPassFilter(cleanChannelNeg(:,i), Fs);
 end
+cleanChannelNeg = 0;
 
 %%%  Band Pass filter
 for i = startCh:(startCh+numOfCh-1)
-    bandFilteredCleanChannel(:,i) = bandPassFilter(cleanChannelNeg(:,i), Fs);
+    %bandFilteredCleanChannel(:,i) = bandPassFilter(cleanChannelNeg(:,i), Fs);
 end
 % plot High Pass
-figure; plot4spaced(time,HPfilteredCleanChannel,'clean and high-pass filtered channels',xlabSig, ylabSig);
+%figure; plot4spaced(time,HPfilteredCleanChannel,'clean and high-pass filtered channels',xlabSig, ylabSig);
 % plot Band filtered
-figure; plot4spaced(time,bandFilteredCleanChannel,'Band filtered channels',xlabSig, ylabSig);
+%figure; plot4spaced(time,bandFilteredCleanChannel,'Band filtered channels',xlabSig, ylabSig);
 % both
-figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
-plot4spaced(time,bandFilteredCleanChannel,'High and Band filtered channels',xlabSig, ylabSig);
+%figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
+%plot4spaced(time,bandFilteredCleanChannel,'High and Band filtered channels',xlabSig, ylabSig);
 
 %%% Weiner
 for i = startCh:(startCh+numOfCh-1)
-    sig = HPfilteredCleanChannel(:,i); 
-    sigma = 0.03*(max(sig)-min(sig));
-    wiener(:,i) = WienerFilter(sig,sig,sigma);
+    %sig = HPfilteredCleanChannel(:,i); 
+    %sigma = 0.03*(max(sig)-min(sig));
+    %wiener(:,i) = WienerFilter(sig,sig,sigma);
 end
 % plot Weiner and High Pass
-figure; plot4spaced(time,wiener,'wiener filtered channels',xlabSig, ylabSig);
+%figure; plot4spaced(time,wiener,'wiener filtered channels',xlabSig, ylabSig);
 % before after wiener
-figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
-plot4spaced(time,wiener,'before/after wiener filter (from highpass)',xlabSig, ylabSig);
+%figure; plot4spaced(time,HPfilteredCleanChannel,[],[],[]);
+%plot4spaced(time,wiener,'before/after wiener filter (from highpass)',xlabSig, ylabSig);
+
+tmp = 0; fourier = tmp; cleanChannelNeg = tmp; channel = tmp;
+%figure; plotOffset(time,HPfilteredCleanChannel, 300, sprintf('%s:\nclean and high-pass filtered channels', file),xlabSig, ylabSig); 
+
+spikes = extractSpikes(HPfilteredCleanChannel, 70, 32, 64);
 
 end
+
+
+function spikes = extractSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
+%a = a + sum(HPfilteredCleanChannel(:,i)>50) %
+%data loop
+%start at first ms so window doesn't crash
+spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
+numSpikes = 1;
+for d = windowBeforeMS+1:length(data(:,1))-windowAfterMS
+   saved = 0;
+   %channel loop
+   for c = 1: length(data(1,:)) %could optimize
+       if (data(d,c) > thresholdMiV) %&& (saved < 0)
+          saved = 1;
+          spikes(1:2,numSpikes) = [d;c]; %store time and channel of spike recorded
+          for i = 1: length(data(1,:))
+              %crazy indexing! +1 is to get next index +2 is the offset of
+              %storing time and channel is first two values
+              spikes((1+2+(i-1)*(windowBeforeMS+windowAfterMS)):2+i*(windowBeforeMS+windowAfterMS),numSpikes) = ...
+                  real(data((d-windowBeforeMS):(d+windowAfterMS-1),i)); %32 samples per ms
+          end
+          numSpikes = numSpikes + 1;
+       end
+   end
+end
+
+end
+
+function spks = countSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
+   spks = 0;
+   for i = 1:length(data(1,:))
+       spks = spks + sum(data(windowBeforeMS+1:length(data(:,1))-windowAfterMS,i)>thresholdMiV);
+   end
+   samples = 16*(3*32); %32 samples per ms 1 ms before, 2 after * 16 channels
+   fprintf('%d spikes X %d samples %d elemets\n',spks,samples,samples*spks);
+end
+
 
 % Clean Harmonics
 %this function cleans harmonics by picking a starting point(offset) after
@@ -133,14 +174,19 @@ data = data*ADBitVolts; % to volts
 data = data*1e6; % to micro volts
 end
 
-%chunks are 1e6 long consequetive parts of the channel signal
-function data = loadChunk(file, channel, chunk)
+%chunks are 1e6 long consequetive parts of the channel signal, can load
+%multiple chunks
+function data = loadChunk(file, channel, chunk, numChunks)
 hdir = 'C:\\Users\\alm\\Desktop\\dori\\raw_data';
 ADBitVolts = 0.000000015624999960550667;
-data = load(sprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk));
-data = data(:,2)*(ADBitVolts*1e6); % to volts % to micro volts
-%data(:,1) = data(:,2)*1e6; 
-data = data';
+data = zeros(1e6*numChunks,1); %chunks are 1e6 long, preallocates
+for i = 1:numChunks
+    tmp = load(sprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1));
+    data((i-1)*1e6+1:i*1e6) = tmp(:,2);
+end
+data = data*ADBitVolts; % to volts % to volts 
+data = data*1e6; % to micro volts
+%data = data';
 end
 
 function data = highPassFilter(input, samplingFrequency)
@@ -189,12 +235,12 @@ function plot4subplots(data, tit, xlab, ylab)
 
 end
 
-%for plotting signal
-function plot4spaced(time, data, tit, xlab, ylab)
-    offset = 5000; %y axis MAGIC NUMBER
+%for plotting signal, plots all sets vertically offset
+function plotOffset(time, data, offset, tit, xlab, ylab)
     hold on;
-    for i = 1:4
-         plot(time,data(:,i)+i*5000)
+    for i = length(data(1,:)):-1:1
+         plot(time,data(:,i)+(i-1)*offset)
+         plot(time,ones(1,length(data(:,i)))*(i-1)*offset)
     end
     hold off
     title(tit);
@@ -206,7 +252,10 @@ function plot4spaced(time, data, tit, xlab, ylab)
 end
 
 
-
+function yo()
+bandPassFilter((1:1e7), 32000);
+disp('done yo');
+end
 
 
 function out=cleanHarmonics(input)
@@ -221,6 +270,4 @@ for i = offset+period+1:length(out) %2005050
     end
     sumPer=sumPer-out(i-period)+out(i);
 end
-
 end
-
