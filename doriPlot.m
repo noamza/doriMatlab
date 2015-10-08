@@ -5,7 +5,7 @@ main();
 end
 
 function main
-clear all; close all; clc;
+clear all; close all; clc; dbstop if error;
 sampleDir = {
     '2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth'; %40 million samples
     '2015-01-29_dreadd_ref17_with_commutator_thresh50';          %15 million samples
@@ -16,16 +16,19 @@ Fs = 32000;                   % Sampling frequency
 T = 1/Fs;                     % Sample time
 startCh = 1;                  % Start channel
 numOfCh = 16;                 % End   channel
-chunk = 1; %1                    % Chunk of 1e6 samples
+chunk = 1;                    % Chunk of 1e6 samples
 numChunks = 3;                % Number of chunks
 
 xlabFreq='Normalized frequency'; ylabFreq='Magnitude(\muV)';
 xlabSig='millisecs'; ylabSig='\muV';
 
+disp('start')
+disp('ch loaded:');
 %loading
 for i = startCh:(startCh+numOfCh-1)
     channel(:,i) = loadChunk(file, i, chunk, numChunks);
     channel(:,i) = channel(:,i)*-1; %invert, makes spikes positive
+    fprintf('%d|',i);
 end
 
 % Time
@@ -56,6 +59,7 @@ for i = startCh:(startCh+numOfCh-1)
     cleanChannelNeg(:,i) = ifft(tmp);
     %data(:,i) = (abs(tmp(1:(length(tmp)/2)+1)));     
 end
+disp('cleaned');
 fourier = 0; tmp = 0;
 % plot fourier before and after after harmonics are cleaned
 %tmp = abs(fourier(1:(length(fourier(:,1))/2)+1,1:length(fourier(1,:))));
@@ -73,6 +77,7 @@ end
 for i = startCh:(startCh+numOfCh-1)
     HPfilteredCleanChannel(:,i) = highPassFilter(cleanChannelNeg(:,i), Fs);
 end
+disp('filtered');
 cleanChannelNeg = 0;
 
 %%%  Band Pass filter
@@ -101,30 +106,60 @@ end
 
 tmp = 0; fourier = tmp; cleanChannelNeg = tmp; channel = tmp;
 %figure; plotOffset(time,HPfilteredCleanChannel, 300, sprintf('%s:\nclean and high-pass filtered channels', file),xlabSig, ylabSig); 
-
+%add name to variables
 spikes = extractSpikes(HPfilteredCleanChannel, 70, 32, 64);
+disp('spiked extracted');
+figure; hist(spikes(2,:)), title('spikes per channel'); % which channel had the most spikes
 
+%Single Value Decomposition %SVD%
+HPfilteredCleanChannel = [];
+signals = spikes(3:end,:);
+signals(signals<-200)=[-200];
+signals(signals>200)=[200];
+%make sure data matrix is set up so samples are COL
+% u is basis vector
+%then multiply first n COL of u TRANSPOSE and do svd on that.
+[u , s , v] = svd(signals,'econ');
+%figure; plot(s), title('singular values of signals');
+%principleComponents = u(:,1:50)*s(1:50,1:50);
+pcaSpikes = u(:,1:50)'*signals;
+kmPca = kmeans(pcaSpikes',10);
+figure; hist(kmPca), title('kmeans pca signals');
+%kmeans input SLOW
+%kmi = kmeans(signals',10);
+%figure;hist(kmi), title('kmeans input');
+%TODO<<<< plot: number of u vectors vs number of K's, compare to Doris data.
+hold on
+% plots signals overlayed 
+% figure;
+for i = 1:10:9546
+    %plot(signals(i,:));
+end
+hold off;
+
+
+stop
 end
 
 
 function spikes = extractSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
-%a = a + sum(HPfilteredCleanChannel(:,i)>50) %
-%data loop
+%data: each channel is column vectors
 %start at first ms so window doesn't crash
+%data matrix, rows = sample structure, cols = samples
 spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
 numSpikes = 1;
-for d = windowBeforeMS+1:length(data(:,1))-windowAfterMS
+for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
    saved = 0;
    %channel loop
-   for c = 1: length(data(1,:)) %could optimize
-       if (data(d,c) > thresholdMiV) %&& (saved < 0)
+   for channeli = 1: length(data(1,:)) %could optimize
+       if (data(timei,channeli) > thresholdMiV) %&& (saved < 1)
           saved = 1;
-          spikes(1:2,numSpikes) = [d;c]; %store time and channel of spike recorded
-          for i = 1: length(data(1,:))
+          spikes(1:2,numSpikes) = [timei;channeli]; %store time and channel of spike recorded
+          for chi2 = 1: length(data(1,:))
               %crazy indexing! +1 is to get next index +2 is the offset of
               %storing time and channel is first two values
-              spikes((1+2+(i-1)*(windowBeforeMS+windowAfterMS)):2+i*(windowBeforeMS+windowAfterMS),numSpikes) = ...
-                  real(data((d-windowBeforeMS):(d+windowAfterMS-1),i)); %32 samples per ms
+              spikes((1+2+(chi2-1)*(windowBeforeMS+windowAfterMS)):2+chi2*(windowBeforeMS+windowAfterMS),numSpikes) = ...
+                  real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
           end
           numSpikes = numSpikes + 1;
        end
