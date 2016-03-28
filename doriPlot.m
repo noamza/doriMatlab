@@ -109,26 +109,109 @@ tmp = 0; fourier = tmp; cleanChannelNeg = tmp; channel = tmp;
 %add name to variables
 spikes = extractSpikes(HPfilteredCleanChannel, 70, 32, 64);
 disp('spiked extracted');
-figure; hist(spikes(2,:)), title('spikes per channel'); % which channel had the most spikes
+[n, p] = hist(spikes(2,:),16);
+figure; bar(p,n./sum(n)*100), title('spikes per channel'); % which channel had the most spikes
 
 %Single Value Decomposition %SVD%
 HPfilteredCleanChannel = [];
+vthreshold = 400;
 signals = spikes(3:end,:);
-signals(signals<-200)=[-200];
-signals(signals>200)=[200];
+signals(signals>vthreshold)=[vthreshold];
+signals(signals<-vthreshold)=[-vthreshold];
+
 %make sure data matrix is set up so samples are COL
 % u is basis vector
 %then multiply first n COL of u TRANSPOSE and do svd on that.
 [u , s , v] = svd(signals,'econ');
-%figure; plot(s), title('singular values of signals');
+figure; plot(s), title('singular values of signals');
 %principleComponents = u(:,1:50)*s(1:50,1:50);
-pcaSpikes = u(:,1:50)'*signals;
-kmPca = kmeans(pcaSpikes',10);
+nk = 10;
+pcaSpikes = u(:,1:100)'*signals;%converts spikes to new base
+kmPca = kmeans(pcaSpikes',nk);
 figure; hist(kmPca), title('kmeans pca signals');
+originalBasisSpikes = u(:,1:100)* pcaSpikes;
+
+figure;
+hold on;
+plot(signals(1000,:));
+%figure
+plot(originalBasisSpikes(1000,:));
+hold off;
+
+
+%u, k loop
+for ui = 150%:50:300
+   figure;
+   c = 1;
+   for ki = 10:1:14
+       pcaSpikes = u(:,1:ui)'*signals;
+       kmPca = kmeans(pcaSpikes',ki);
+       subplot(5,1,c); c = c+1;
+       [n , p] = hist(kmPca);
+       bar(p,n./sum(n)*100), title(sprintf('u:%d k:%d', ui, ki));
+   end
+end
+
 %kmeans input SLOW
-%kmi = kmeans(signals',10);
+nki = 10;
+kmi = kmeans(signals',nki);
+[n , p] = hist(kmi,nki);
+bar(p,n./sum(n)*100), title(sprintf('kmeans on events k=%d', nki));
+ylabel('% of total events');
+
 %figure;hist(kmi), title('kmeans input');
-%TODO<<<< plot: number of u vectors vs number of K's, compare to Doris data.
+%%% sort signals by cluster
+clusters = cell(nki,16);
+i=zeros(nki,1);
+sampleLength = 96;
+for k = 1:9546
+  i(kmi(k)) = i(kmi(k))+1;
+  for ch = 1:16 %16 channels
+  	clusters{kmi(k),ch}(end+1,:) = signals(1+(ch-1)*sampleLength:ch*sampleLength,k);
+  end
+end
+%%%
+
+%spikes moving through time is an issue
+
+%%%plot
+close all;
+for k = 1:size(clusters,1)
+    figure(k);
+    for ch = 1:size(clusters,2)
+        fprintf('k:%d ch:%d\n', k, ch);
+        subplot(4,4,ch)
+        hold on
+        for sam = 1:1:size(clusters{k,ch},1)
+            %disp(sam); 
+            %plot(clusters{k,ch,sam,:}), title(sprintf('k:%d ch:%d', k, ch));
+            axis([1,98,-200,200]);
+            plot(clusters{k,ch}(sam,:)), title(sprintf('kl:%d ch:%d sz:%d', k, ch,i(k)));
+            saveas(gcf,sprintf('all_signals_k_%d.png',k));
+        end
+        hold off
+    end
+end
+
+%%%mean
+close all;
+for k = 1:size(clusters,1)
+    figure(k);
+    for ch = 1:size(clusters,2)
+        subplot(4,4,ch)
+        for sam = 1:sampleLength
+            cmean(k,ch,1,sam) = mean(clusters{k,ch}(:,sam));
+            cmean(k,ch,2,sam) =  std(clusters{k,ch}(:,sam));
+        end
+        errorbar(cmean(k,ch,1,:), cmean(k,ch,2,:)),
+        axis([1,98,-150,150]);
+        title(sprintf('kl:%d ch:%d sz:%d', k, ch,i(k)));
+        saveas(gcf,sprintf('error_bar_k_%d.png',k));
+    end
+end
+
+
+
 hold on
 % plots signals overlayed 
 % figure;
@@ -137,23 +220,38 @@ for i = 1:10:9546
 end
 hold off;
 
-
+stop
 stop
 end
 
+function sortSpikesByClusterChan(ki, signals)
+    sampleLength = 96;
+    for k = 1:length(ki)
+        for ch = 1:16 %16 channels 
+            sorted(ki(k),ch,1:sampleLength) = signals(1+(ch-1)*sampleLength:ch*sampleLength,k); 
+        end
+    end
+end
 
+
+
+%MAKE SURE DOESNT FAST FORWARD OTHER CHANNELS
 function spikes = extractSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
 %data: each channel is column vectors
 %start at first ms so window doesn't crash
 %data matrix, rows = sample structure, cols = samples
-spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
-numSpikes = 1;
+%spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
+eventIntervalThresh = 32;%1ms between events
+spikes = zeros(2+(windowBeforeMS+windowAfterMS)*16,10e3); %max number make larger
+numSpikes = 2; %lameness
 for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
    saved = 0;
    %channel loop
-   for channeli = 1: length(data(1,:)) %could optimize
-       if (data(timei,channeli) > thresholdMiV) %&& (saved < 1)
+   for channeli = 1: length(data(1,:)) %could optimize %&& (saved < 1)
+       if (data(timei,channeli) > thresholdMiV) && ... 
+       (timei > (spikes(1,numSpikes-1)+ eventIntervalThresh)) %space between event intervals
           saved = 1;
+          %fprintf('%d > %d :%d\n',timei, spikes(1,numSpikes)+ windowAfterMS,(timei > (spikes(1,numSpikes)+ windowAfterMS)));
           spikes(1:2,numSpikes) = [timei;channeli]; %store time and channel of spike recorded
           for chi2 = 1: length(data(1,:))
               %crazy indexing! +1 is to get next index +2 is the offset of
@@ -162,10 +260,12 @@ for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
                   real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
           end
           numSpikes = numSpikes + 1;
+       %else
+          % disp('skipped');
        end
    end
 end
-
+spikes = spikes(:,2:numSpikes-1);
 end
 
 function spks = countSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
@@ -286,6 +386,7 @@ function plotOffset(time, data, offset, tit, xlab, ylab)
     %set(gca,'yticklabel',sprintf('%.0f',n'));
 end
 
+%%%%%%%%%%%%%%%%NOT USED%%%%%%%%%%%%%%%%%
 
 function yo()
 bandPassFilter((1:1e7), 32000);
@@ -304,5 +405,61 @@ for i = offset+period+1:length(out) %2005050
         out(i)=sumPer/period;
     end
     sumPer=sumPer-out(i-period)+out(i);
+end
+end
+
+
+function spikes = extractSpikesOrig(data, thresholdMiV, windowBeforeMS, windowAfterMS)
+%data: each channel is column vectors
+%start at first ms so window doesn't crash
+%data matrix, rows = sample structure, cols = samples
+spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
+numSpikes = 1;
+for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
+   saved = 0;
+   %channel loop
+   for channeli = 1: length(data(1,:)) %could optimize
+       if (data(timei,channeli) > thresholdMiV) %&& (saved < 1)
+          saved = 1;
+          spikes(1:2,numSpikes) = [timei;channeli]; %store time and channel of spike recorded
+          for chi2 = 1: length(data(1,:))
+              %crazy indexing! +1 is to get next index +2 is the offset of
+              %storing time and channel is first two values
+              spikes((1+2+(chi2-1)*(windowBeforeMS+windowAfterMS)):2+chi2*(windowBeforeMS+windowAfterMS),numSpikes) = ...
+                  real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
+          end
+          numSpikes = numSpikes + 1;
+       end
+   end
+end
+
+end
+
+function spikes = extractSpikesNoTrace(data, thresholdMiV, windowBeforeMS, windowAfterMS)
+spikes = double(zeros(2+(windowBeforeMS+windowAfterMS)*16,countSpikes(data,thresholdMiV, windowBeforeMS, windowAfterMS)));
+numSpikes = 1;
+timei = windowBeforeMS+1
+%for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
+while timei < length(data(:,1))-windowAfterMS
+   saved = 0;
+   %channel loop
+   for channeli = 1: length(data(1,:)) %could optimize
+       if (data(timei,channeli) > thresholdMiV) && (saved < 1)
+          saved = 1;
+          spikes(1:2,numSpikes) = [timei;channeli]; %store time and channel of spike recorded
+          for chi2 = 1: length(data(1,:))
+              %crazy indexing! +1 is to get next index +2 is the offset of
+              %storing time and channel is first two values
+              spikes((1+2+(chi2-1)*(windowBeforeMS+windowAfterMS)):2+chi2*(windowBeforeMS+windowAfterMS),numSpikes) = ...
+                  real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
+          end
+          numSpikes = numSpikes + 1;   
+       end
+   end
+   if saved > 0 %gets rid of traces
+       timei = timei + windowAfterMS; %only save one spike per window
+   else
+       timei = timei +1;
+   end
 end
 end
