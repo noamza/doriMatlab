@@ -20,44 +20,143 @@ PCA via SVD
 Then K-Means on filtered before and after PCA
 
 %}
-function ClassDemo()
-main();
+function RawDataProcessing()
+    main();
 end
 
 function main
 clear all; close all; clc; dbstop if error;
 %data from the Dori Derdikman's Lab, rat neuron recordings, Technion
 %Medical Faculty
+%{
 sampleDir = {
     '2015-01-01_15-45-34_dreadd_rat_ref_animalground_2100depth'; %40 million samples
     '2015-01-29_dreadd_ref17_with_commutator_thresh50';          %15 million samples
     '2015-01-06_130_rat130_arena1' ;                             %50 million samples
     '2015-05-18_messi_before_injection_threshold40_ref4'};%dori  %60 million samples
 file = char(sampleDir(4));
+%}
+
+outdir =....
+        'C:\\Noam\\Output\\doriPlot\\Ohad\\160515\\'; %160519(4) 160515(1)
+    
+hdir = 'C:\\Noam\\Data\\doriPlot\\Ohad\\160515\\';
+sampleDir = {
+    '1'; 
+    '2';          
+    '3';          
+    '4'};
+file = char(sampleDir(1));
+
 %variables from data recording, channels = # of electrods inserted into rat
 Fs = 32000;                   % Sampling frequency
 T = 1/Fs;                     % Sample time
 startCh = 1;                  % Start channel
 numOfCh = 16;                 % End   channel
-chunk = 30;                   % Chunk of 1e6 samples
-numChunks = 2;                % Number of chunks
+chunk = 16;                    % Chunk of 1e6 samples 
+numChunks = 1;                % Number of chunks %GET AUTO
+loadAllChunks = 1;            %load all chunks?
 xlabSig='millisecs'; ylabSig='\muV';
 xlabFreq='Normalized frequency'; ylabFreq='Magnitude(\muV)';
 disp('start')
+loadFromFile = 0;
+
+
+for i=1:length(sampleDir)
+    file = char(sampleDir(i));
+    tic
+    %build spikes segment
+    totalSpikes = zeros(1538,1);
+    
+    if(loadAllChunks == 1)
+        chunk = 1;
+        numChunks = (length(dir(strcat(hdir,file,'\\chunks'))) - 2)/16; %divides total files by 16 channels, -2 for .. . dirs
+    end
+    disp(strcat(hdir,file, ' loading ', numChunks, ' chunks!'));
+    for chu = chunk:chunk+numChunks-1 %for each chunk
+        channel = []; fourier = []; cleanFourierNeg = []; cleanChannelNeg = []; 
+        HPfilteredCleanChannel = []; tmp=0; tmp2= 0; tmp3=0; tmp4=0;
+        neuralynxTime = [];
+        disp(chu);
+        %disp('chunk!');
+        %disp('ch loaded:');
+        neuralynxTime = loadNeuralynxTime(file, i, chu, 1, hdir);
+        for i = startCh:(startCh+numOfCh-1) %for each channel in each chunk
+            channel(:,i) = loadChunk(file, i, chu, 1, hdir);
+            channel(:,i) = channel(:,i)*-1; %invert, makes spikes positive
+            channel(:,i) = channel(:,i) -  mean(channel(:,i)); %make 0 mean 
+            fprintf('%d|',i);
+        end       
+        if chu == 1
+            save(strcat(outdir,'channels_f',file),'channel');
+        end
+        time = (1:length(channel))*T*1000; %converts to millisecs
+        %figure; plotOffset(time,channel,2000,'input before preprocessing',xlabSig, ylabSig);
+        channel = removeNoisyChannels(channel);
+        %figure; plotOffset(time,channel,2000,'input noisy channels removed',xlabSig, ylabSig);
+
+        for i = startCh:(startCh+numOfCh-1)
+            fourier(:,i) = fft(channel(:,i));
+            tmp = cleanHarmonicsNeg(fourier(:,i));%see function descrition
+            cleanFourierNeg(:,i) = tmp;
+            cleanChannelNeg(:,i) = ifft(tmp);
+            HPfilteredCleanChannel(:,i) = highPassFilter(cleanChannelNeg(:,i), Fs);
+        end
+        % plot fourier before and after after harmonics are cleaned
+        ftime = Fs/2*linspace(0,1,(length(fourier(:,1))/2+1));
+        tmp = abs(fourier(1:(length(fourier(:,1))/2)+1,1:length(fourier(1,:))));
+        %set(gca,'DefaultTextFontSize',32);
+        %plot both
+        tmp2 = abs(cleanFourierNeg(1:(length(cleanFourierNeg(:,1))/2)+1,1:length(cleanFourierNeg(1,:))));
+        %figure; plotOverlayxy(ftime,tmp(:,9),tmp2(:,9), 'Fourier after harmonics cleaned ch 9', xlabFreq, ylabFreq); 
+        %legend('original', 'after cleaning harmonics'); ylim([0 11e4]);
+        % plot channel after its been cleaned of harmonics
+        %original vs cleanes
+        %figure; plotOverlayxy(time,channel(:,9), real(cleanChannelNeg(:,9)),'Channel 9: harmonics cleaned',xlabSig, ylabSig);
+        %legend('original', 'after cleaning harmonics');
+        % plot High Pass
+        %figure; plotOffset(time,HPfilteredCleanChannel,500,'Harmonics cleaned and high-pass filtered channels',xlabSig, ylabSig);
+        %%%%%%%%%%%%%%%%%   Extracting spikes 
+        spikes = extractSpikes(HPfilteredCleanChannel, neuralynxTime, 70, 32, 64); %see function description
+        totalSpikes = [totalSpikes, spikes];
+        disp('spikes extracted');
+        
+%         nSpikesPerChannel = zeros(1,16);
+        %for i = 1:length(spikes(2,:)) %spikes per channel
+           % nSpikesPerChannel(spikes(2,i)) = nSpikesPerChannel(spikes(2,i)) + 1;
+        %end
+        %plot spikes per channel
+        %figure; bar(nSpikesPerChannel./sum(nSpikesPerChannel)*100), title('% spikes per channel'); % which channel had the most spikes
+        %cleaning high values
+%         vthreshold = 400; %max micro volt threshold
+%         signals = spikes(3:end,:);
+%         signals(signals>vthreshold)=[vthreshold];
+%         signals(signals<-vthreshold)=[-vthreshold];                
+    end %chunk loop
+    disp('done!');
+    toc
+    save(strcat(outdir,'totalSpikes_',file),'totalSpikes');
+end %file loop
+
+
+STOP
+
 
 %loading from file (processed from raw data using NeuralDataBinaryToInteger.java script) 
-loadFromFile=0;
 if loadFromFile == 1
     disp('ch loaded:');
     for i = startCh:(startCh+numOfCh-1)
-        channel(:,i) = loadChunk(file, i, chunk, numChunks);
+        channel(:,i) = loadChunk(file, i, chunk, numChunks, hdir);
         channel(:,i) = channel(:,i)*-1; %invert, makes spikes positive
         channel(:,i) = channel(:,i) -  mean(channel(:,i));
+        figure; plotOffset(time,channel,500,'Input Signal: Raw Neural Recording of Rat',xlabSig, ylabSig);
+        %1 channel
+        figure; plotOffset(time,channel(:,9),500,'Channel 9: input Signal',xlabSig, ylabSig);
         fprintf('%d|',i);
     end
 end
 %}
-%for Demo these values are preprocessed
+%{ for Demo these values are preprocessed
 if loadFromFile == 0
     load('demo_channels');
     load('demo_fourier');
@@ -117,7 +216,7 @@ legend('original', 'after cleaning harmonics');
 %%%%%%%%%%%%%% High Pass filtering
 %hp only, for debug
 if loadFromFile == 1
-    for numSpikesPerCluster = startCh:(startCh+numOfCh-1)
+    for i = startCh:(startCh+numOfCh-1)
         %HPfilteredChannel(:,i) = highPassFilter(channel(:,i), Fs);
     end
 end
@@ -164,6 +263,10 @@ vthreshold = 400; %max micro volt threshold
 signals = spikes(3:end,:);
 signals(signals>vthreshold)=[vthreshold];
 signals(signals<-vthreshold)=[-vthreshold];
+
+
+STOP
+
 
 %%%%%%%%%%%%%%          kmeans input
 nKlusters = 6; %initialize with 6 clusters (depends on data, this is from Dori's lab)
@@ -241,6 +344,17 @@ end
 
 %%%%%%%%%%%SUBROUTINES%%%%%%%%%%
 
+function channels = removeNoisyChannels(channels)
+    a = std(channels); 
+    thresh = 5; % thresh * std's of median removed
+    %figure;bar(a); title('STDs');
+    for i = 1:length(channels(1,:))
+        if a(i) > thresh * median(a);
+        channels(:,i) = ones(length(channels(:,1)),1);
+        end
+    end
+end
+
 %creates data structure of samples per cluster and plots them based on
 %output after running kmeans
 %klusterIds is matrix of each sample and which cluster it belongs to
@@ -284,29 +398,33 @@ end
 %data: each channel is column vectors
 %start at first ms so window doesn't crash
 %data matrix, rows = sample structure, cols = samples
-function spikes = extractSpikes(data, thresholdMiV, windowBeforeMS, windowAfterMS)
-eventIntervalThresh = 32;%1ms between events
-spikes = zeros(2+(windowBeforeMS+windowAfterMS)*16,10e3); %max number make larger
-numSpikes = 2;%offset first value
-for timei = windowBeforeMS+1:length(data(:,1))-windowAfterMS
-   saved = 0;
-   %channel loop
-   for channeli = 1: length(data(1,:))
-       if (data(timei,channeli) > thresholdMiV) && ... 
-       (timei > (spikes(1,numSpikes-1)+ eventIntervalThresh)) %min space between event intervals
-          saved = 1;
-          spikes(1:2,numSpikes) = [timei;channeli]; %store time and channel of spike recorded
-          for chi2 = 1: length(data(1,:))
-              %storing time and channel is first two values so 2 offset
-              %extracts window per channel
-              spikes((1+2+(chi2-1)*(windowBeforeMS+windowAfterMS)):2+chi2*(windowBeforeMS+windowAfterMS),numSpikes) = ...
-                  real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
-          end
-          numSpikes = numSpikes + 1;
+function spikes = extractSpikes(data, neuralynxTime, thresholdMiV, windowBeforeMS, windowAfterMS)
+    eventIntervalThresh = 32;%1ms between events
+    spikes = zeros(2+(windowBeforeMS+windowAfterMS)*16,10e3); %max number make larger
+    numSpikes = 2;%offset first value so we can do ,numSpikes-1
+    prevSpikeTime = -eventIntervalThresh;
+    for timei = windowBeforeMS+1 : length(data(:,1))-windowAfterMS %start at edge of back window, end edge forward window 
+       saved = 0;
+       %channel loop
+       for channeli = 1: length(data(1,:)) %checks each channel for a spike
+           if (data(timei,channeli) > thresholdMiV) && ... 
+           (timei > prevSpikeTime + eventIntervalThresh) %(spikes(1,numSpikes-1)+ eventIntervalThresh)) %min space between event intervals
+              saved = 1; %don't save spikes on multiple channels, unused
+              prevSpikeTime = timei;
+              spikes(1:2,numSpikes) = [neuralynxTime(timei);channeli]; %store time and channel of spike recorded //timei
+              for chi2 = 1: length(data(1,:))  %stores information on all channels when spike is found
+                  %storing time and channel is first two values so 2 offset
+                  %extracts window per channel 
+                  %+2 offset time/channel in beginning
+                  % (chi2-1)* and chi2* before/after window at length of channel. 
+                  spikes((1+2+(chi2-1)*(windowBeforeMS+windowAfterMS)):2+chi2*(windowBeforeMS+windowAfterMS),numSpikes) = ...
+                      real(data((timei-windowBeforeMS):(timei+windowAfterMS-1),chi2)); %32 samples per ms
+              end
+              numSpikes = numSpikes + 1;
+           end
        end
-   end
-end
-spikes = spikes(:,2:numSpikes-1);
+    end
+    spikes = spikes(:,2:numSpikes-1); %trims off all 0's at end and one at beginning
 end
 
 % Clean Harmonics
@@ -340,19 +458,33 @@ data = data*ADBitVolts; % to volts
 data = data*1e6; % to micro volts
 end
 
+
+function data = loadNeuralynxTime(file, channel, chunk, numChunks, hdir)
+    data = [];
+    for i = 1:numChunks
+        %fprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1);
+        tmp = load(sprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1));
+        %data((i-1)*1e6+1:i*1e6) = tmp(:,2);
+        data = [data(:) ; tmp(:,1)];
+    end
+end
+
 %chunks are 1e6 long consequetive parts of the channel signal, can load
 %multiple chunks
-function data = loadChunk(file, channel, chunk, numChunks)
-hdir = 'C:\\Users\\alm\\Desktop\\dori\\raw_data';
-ADBitVolts = 0.000000015624999960550667;%conversion of raw data to volts
-data = zeros(1e6*numChunks,1); %chunks are 1e6 long, preallocates
-for i = 1:numChunks
-    tmp = load(sprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1));
-    data((i-1)*1e6+1:i*1e6) = tmp(:,2);
-end
-data = data*ADBitVolts; % to volts % to volts 
-data = data*1e6; % to micro volts
-%data = data';
+function data = loadChunk(file, channel, chunk, numChunks, hdir)
+    ADBitVolts = 0.000000015624999960550667;%conversion of raw data to volts
+    %data = zeros(1e6*numChunks,1); %chunks are 1e6 long, preallocates
+    data = [];
+    prev = 2;
+    for i = 1:numChunks
+        %fprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1);
+        tmp = load(sprintf('%s\\%s\\chunks\\ch%d_%d.csv',hdir,file,channel,chunk+i-1));
+        %data((i-1)*1e6+1:i*1e6) = tmp(:,2);
+        data = [data(:) ; tmp(:,2)];
+    end
+    data = data*ADBitVolts; % to volts % to volts 
+    data = data*1e6; % to micro volts
+    %data = data';
 end
 
 function data = highPassFilter(input, samplingFrequency)
@@ -456,7 +588,7 @@ end
 %for plotting signal, plots all sets vertically offset
 function plotOffset(time, data, offset, tit, xlab, ylab)
     hold on;
-    for i = length(data(1,:)):-1:1
+    for i = 1:length(data(1,:))%length(data(1,:)):-1:1
          plot(time,data(:,i)+(i-1)*offset)
          %plot(time,ones(1,length(data(:,i)))*(i-1)*offset)
     end
